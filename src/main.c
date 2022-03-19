@@ -4,13 +4,18 @@
 //  Created by Dylan Parker on September 11 2019
 //
 
-#import <IOKit/IOKitLib.h>
-#import <IOKit/IOCFPlugIn.h>
-#import <stdio.h>
-#import <string.h>
-#import <stdlib.h>
+#include <IOKit/IOKitLib.h>
+#include <IOKit/IOCFPlugIn.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <Availability.h>
 
-#import "razerkbd_driver.h"
+#include "razerkbd_driver.h"
+
+#if (defined __MAC_OS_X_VERSION_MIN_REQUIRED) && (__MAC_OS_X_VERSION_MIN_REQUIRED < 120000)
+#define kIOMainPortDefault kIOMasterPortDefault
+#endif
 
 IOUSBDeviceInterface** getRazerUSBDeviceInterface() {
 	CFMutableDictionaryRef matchingDict;
@@ -18,10 +23,10 @@ IOUSBDeviceInterface** getRazerUSBDeviceInterface() {
 	if (matchingDict == NULL) {
 		return NULL;
 	}
-	
+
 	io_iterator_t iter;
 	kern_return_t kReturn =
-		IOServiceGetMatchingServices(kIOMasterPortDefault, matchingDict, &iter);
+		IOServiceGetMatchingServices(kIOMainPortDefault, matchingDict, &iter);
 	if (kReturn != kIOReturnSuccess) {
 		return NULL;
 	}
@@ -30,44 +35,44 @@ IOUSBDeviceInterface** getRazerUSBDeviceInterface() {
 	while ((usbDevice = IOIteratorNext(iter))) {
 		IOCFPlugInInterface **plugInInterface = NULL;
 		SInt32 score;
-		
+
 		kReturn = IOCreatePlugInInterfaceForService(
 			usbDevice, kIOUSBDeviceUserClientTypeID, kIOCFPlugInInterfaceID, &plugInInterface, &score);
-		
+
 		IOObjectRelease(usbDevice);  // Not needed after plugin created
 		if ((kReturn != kIOReturnSuccess) || plugInInterface == NULL) {
 			printf("Unable to create plugin (0x%08x)\n", kReturn);
 			continue;
 		}
-		
+
 		IOUSBDeviceInterface **dev = NULL;
 		HRESULT hResult = (*plugInInterface)->QueryInterface(
 			plugInInterface, CFUUIDGetUUIDBytes(kIOUSBDeviceInterfaceID), (LPVOID *)&dev);
-		
+
 		(*plugInInterface)->Release(plugInInterface);  // Not needed after device interface created
 		if (hResult || !dev) {
 			printf("Couldn’t create a device interface (0x%08x)\n", (int) hResult);
 			continue;
 		}
-		
+
 		if (!is_blade_laptop(dev)) {
 			(*dev)->Release(dev);	// Not recognized as a Razer Blade Laptop device
 			continue;
 		}
-		
+
 		kReturn = (*dev)->USBDeviceOpen(dev);
 		if (kReturn != kIOReturnSuccess)  {
 			printf("Unable to open USB device: %08x\n", kReturn);
 			(*dev)->Release(dev);
 			continue;
 		}
-		
+
 		// Success. We found the Razer USB device.
 		// Caller is responsible for closing USB and release device.
 		IOObjectRelease(iter);
 		return dev;
 	}
-	
+
 	IOObjectRelease(iter);
 	return NULL;
 }
@@ -128,7 +133,7 @@ int main(int argc, const char * argv[]) {
 	if (dev == NULL) {
 		return -1;  // Assume appropriate error message displayed during the lookup
 	}
-	
+
 	const char* cmd = argv[1];
 	if (strcmp("info", cmd) == 0) {
 		char buf[256] = {0};
@@ -195,7 +200,7 @@ int main(int argc, const char * argv[]) {
 			buf[0] = strtol(argv[2], NULL, 10);
 			buf[1] = strtol(argv[3], NULL, 10);
 			buf[2] = strtol(argv[4], NULL, 10);
-			buf[3] = strtol(argv[5], NULL, 10);			
+			buf[3] = strtol(argv[5], NULL, 10);
 		} else {
 			printf("-- Incorrect number of args for command: %s\n\n", cmd);
 			printUsage();
@@ -210,7 +215,7 @@ int main(int argc, const char * argv[]) {
 			buf[0] = strtol(argv[2], NULL, 10);
 			buf[1] = strtol(argv[3], NULL, 10);
 			buf[2] = strtol(argv[4], NULL, 10);
-			buf[3] = strtol(argv[5], NULL, 10);			
+			buf[3] = strtol(argv[5], NULL, 10);
 		} else {
 			printf("-- Incorrect number of args for command: %s\n\n", cmd);
 			printUsage();
@@ -285,7 +290,7 @@ int main(int argc, const char * argv[]) {
 		razer_attr_read_set_brightness(dev, buf);
 		if (argc - 2 == 0) {
 			// Display the current brightness
- 			printf("%s", buf); 
+ 			printf("%s", buf);
 		} else if (argc - 2 == 1) {
 			// Changing the brightness
 			if (strcmp(argv[2], "up") == 0 || strcmp(argv[2], "down") == 0) {
@@ -310,6 +315,6 @@ int main(int argc, const char * argv[]) {
 
 	(*dev)->USBDeviceClose(dev);
 	(*dev)->Release(dev);
-	
+
 	return 0;
 }
